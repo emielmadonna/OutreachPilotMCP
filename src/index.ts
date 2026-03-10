@@ -468,6 +468,84 @@ VOICE DIALING
             required: ["message"],
         },
     },
+
+    // ── RESEARCH (AGENTIC) ────────────────────────────────────────────────
+
+    {
+        name: "run_research",
+        description:
+            "Start an agentic research job to find companies or people matching your criteria. Returns a job_id to poll with check_research_status. Send with confirmed=false first to get a cost estimate, then confirmed=true to execute.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                query: {
+                    type: "string",
+                    description: "Natural language search criteria (e.g. 'fintech founders in NY', 'SaaS companies with 50-200 employees').",
+                },
+                target_type: {
+                    type: "string",
+                    description: "What to search for: 'companies' or 'people'. Default: companies.",
+                    default: "companies",
+                },
+                limit: {
+                    type: "number",
+                    description: "Max results to find. Default 10, max 50.",
+                    default: 10,
+                },
+                depth: {
+                    type: "string",
+                    description: "Research depth: 'standard' (2 credits/result), 'thorough' (3), or 'deep' (5). Default: standard.",
+                    default: "standard",
+                },
+                confirmed: {
+                    type: "boolean",
+                    description: "Set to false for cost estimate, true to execute. Always get estimate first.",
+                    default: false,
+                },
+            },
+            required: ["query"],
+        },
+    },
+
+    {
+        name: "check_research_status",
+        description:
+            "Poll the status of a running research job. Returns status (pending/running/complete/error), result count, and full results when complete. Keep calling this until status is 'complete', then call import_research_results.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                job_id: {
+                    type: "string",
+                    description: "Research job ID from run_research.",
+                },
+            },
+            required: ["job_id"],
+        },
+    },
+
+    {
+        name: "import_research_results",
+        description:
+            "Import completed research results into the CRM as contacts. Only call after check_research_status returns 'complete'. Can auto-assign to a folder and/or enroll in a campaign.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                job_id: {
+                    type: "string",
+                    description: "The completed research job ID.",
+                },
+                folder_name: {
+                    type: "string",
+                    description: "Create/use this folder for imported contacts.",
+                },
+                campaign_id: {
+                    type: "string",
+                    description: "Auto-enroll imported contacts into this campaign.",
+                },
+            },
+            required: ["job_id"],
+        },
+    },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -618,6 +696,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                     `/api/v1/webhooks?id=${encodeURIComponent(args?.webhook_id as string)}`,
                     "DELETE"
                 );
+                break;
+            }
+
+            // ── RESEARCH ──────────────────────────────────────────────────
+
+            case "run_research": {
+                result = await apiRequest("/api/v1/research", "POST", {
+                    query: args?.query,
+                    target_type: args?.target_type ?? "companies",
+                    limit: args?.limit ?? 10,
+                    depth: args?.depth ?? "standard",
+                    confirmed: args?.confirmed ?? false,
+                });
+                break;
+            }
+
+            case "check_research_status": {
+                result = await apiRequest(
+                    `/api/v1/research/status?job_id=${encodeURIComponent(args?.job_id as string)}`
+                );
+                break;
+            }
+
+            case "import_research_results": {
+                result = await apiRequest("/api/v1/research/import", "POST", {
+                    job_id: args?.job_id,
+                    folder_name: args?.folder_name,
+                    campaign_id: args?.campaign_id,
+                });
                 break;
             }
 
