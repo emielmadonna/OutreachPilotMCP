@@ -797,6 +797,35 @@ VOICE DIALING
             required: ["campaign_id"],
         },
     },
+
+    // ── SETUP & ONBOARDING ──────────────────────────────────────────────────
+
+    {
+        name: "setup_workspace",
+        description:
+            "Run a full health check on the OutreachPilot workspace. Returns setup completeness for: email accounts, ICP config, knowledge base, folders, contacts, campaigns, and credits. Use this FIRST when starting a new conversation to understand what's configured and what needs setup. Returns a readiness percentage and actionable recommendations.",
+        inputSchema: {
+            type: "object",
+            properties: {},
+        },
+    },
+
+    {
+        name: "onboarding_guide",
+        description:
+            "Get the step-by-step onboarding guide for setting up OutreachPilot from scratch. Returns a detailed walkthrough covering: account setup, email connection, ICP configuration, knowledge base, contact import, folder organization, campaign creation, and launch. Use this when a user is new or asks how to get started.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                focus: {
+                    type: "string",
+                    description:
+                        "Optional: Focus on a specific area. Options: email, icp, knowledge_base, contacts, campaigns, integrations, all. Default: all.",
+                    default: "all",
+                },
+            },
+        },
+    },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1082,6 +1111,152 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                     "PATCH",
                     campFields
                 );
+                break;
+            }
+            // ── SETUP & ONBOARDING ────────────────────────────────────────
+
+            case "setup_workspace": {
+                result = await apiRequest("/api/v1/setup/status");
+                break;
+            }
+
+            case "onboarding_guide": {
+                const focus = (args?.focus as string) || "all";
+
+                const guides: Record<string, object> = {
+                    email: {
+                        title: "📧 Connect Email Account",
+                        priority: "CRITICAL — required for all outreach",
+                        steps: [
+                            "Go to Dashboard → Settings → Email Accounts",
+                            "Click 'Connect Gmail' (or other provider)",
+                            "Authorize OAuth access — OutreachPilot needs send/read permissions",
+                            "Set your Sender Name (how recipients see you)",
+                            "Send a test email to yourself to verify",
+                        ],
+                        tips: [
+                            "Use a dedicated outreach email, not your personal inbox",
+                            "Warm up new email accounts for 2 weeks before high-volume sending",
+                            "Keep daily send volume under 50 for new accounts, scale gradually",
+                        ],
+                        verify: "Use setup_workspace to confirm email shows as 'active'",
+                    },
+                    icp: {
+                        title: "🎯 Configure Ideal Customer Profile (ICP)",
+                        priority: "HIGH — directly impacts campaign targeting and copy quality",
+                        steps: [
+                            "Go to Dashboard → Settings → ICP Configuration",
+                            "Set Target Titles (e.g., 'VP of Sales', 'CTO', 'Head of Growth')",
+                            "Set Target Industries (e.g., 'SaaS', 'Fintech', 'E-commerce')",
+                            "Set Pain Points (e.g., 'manual outreach takes too long', 'low reply rates')",
+                            "Set Company Size range (e.g., 50-500 employees)",
+                            "Optionally add: tech stack, geographies, funding stage",
+                        ],
+                        tips: [
+                            "Be specific with pain points — these appear in campaign copy",
+                            "Add at least 3 fields for best results",
+                            "Update ICP as you learn what converts",
+                        ],
+                        verify: "Use setup_workspace to confirm ICP status is 'complete'",
+                    },
+                    knowledge_base: {
+                        title: "📚 Fill Out Knowledge Base",
+                        priority: "CRITICAL — the #1 factor for campaign copy quality",
+                        steps: [
+                            "Go to Dashboard → Settings → Pilot / Auto-Responder",
+                            "Fill in the Knowledge Base text field",
+                            "Include: what you sell, who it's for, key value propositions",
+                            "Include: pricing/offer details, differentiators vs competitors",
+                            "Include: case studies, social proof, notable customers",
+                            "Include: common objections and how to handle them",
+                            "Aim for 200+ words — more context = better AI output",
+                        ],
+                        tips: [
+                            "This is what the AI reads when writing campaign emails",
+                            "Think of it as briefing a new SDR on your product",
+                            "Update it when you add features, change pricing, or win big clients",
+                            "Include example email copy you've written that performed well",
+                        ],
+                        verify: "Use setup_workspace to check knowledge_base word count (aim for 200+)",
+                    },
+                    contacts: {
+                        title: "👥 Import Contacts",
+                        priority: "HIGH — you need people to reach out to",
+                        steps: [
+                            "Option 1: CSV Import — Dashboard → Contacts → Import CSV",
+                            "Option 2: AI Research — use run_research tool or pilot: 'Find 20 VPs of Sales at SaaS companies in Austin'",
+                            "Option 3: Manual — use create_contact tool for individual additions",
+                            "Organize contacts into folders (create_folder tool or Dashboard → Contacts → New Folder)",
+                            "Enrich contacts with research for better personalization",
+                        ],
+                        tips: [
+                            "Folders = audience segments. Create one per campaign/ICP segment",
+                            "Research-imported contacts come pre-enriched with context",
+                            "The more data per contact (title, company, context), the better the personalization",
+                        ],
+                        verify: "Use list_contacts or setup_workspace to confirm contacts exist",
+                    },
+                    campaigns: {
+                        title: "🚀 Create & Launch Your First Campaign",
+                        priority: "HIGH — this is where outreach happens",
+                        steps: [
+                            "Make sure email, ICP, and knowledge base are set up first",
+                            "Create a campaign: use pilot tool — 'Build a 3-step email campaign for [audience] about [product/goal]'",
+                            "Review the generated steps — the AI uses your knowledge base + ICP",
+                            "If copy needs tweaking: 'Rewrite step 2 to be more casual' or 'Add a case study to step 3'",
+                            "Assign a target folder: the contacts in that folder will receive the campaign",
+                            "Launch: 'Launch the campaign' or use campaign_status tool",
+                            "Monitor: use get_campaign_status to track delivery, opens, replies",
+                        ],
+                        tips: [
+                            "Start with 3-step email campaigns before going multi-channel",
+                            "Always review AI-generated copy before launching",
+                            "Enable 'stop on reply' so responders drop out of the sequence",
+                            "Send to a small test group first (10-20 contacts) before scaling",
+                        ],
+                        verify: "Use get_campaign_status to monitor after launch",
+                    },
+                    integrations: {
+                        title: "🔗 Optional Integrations",
+                        priority: "OPTIONAL — enhance functionality",
+                        steps: [
+                            "LinkedIn: Connect in Dashboard → Settings for LinkedIn outreach steps",
+                            "Slack: Connect for real-time notifications when leads reply",
+                            "Calendar: Connect Google Calendar for AI-powered meeting booking",
+                            "Loom: Add Loom video links to campaign emails for higher engagement",
+                            "Webhooks: Use create_webhook to receive real-time events in your systems",
+                        ],
+                        tips: [
+                            "Slack integration is great for team visibility on replies",
+                            "Calendar integration lets the AI auto-book meetings from chat",
+                            "Webhooks enable custom automations with your own backend",
+                        ],
+                    },
+                };
+
+                const selectedGuides = focus === "all"
+                    ? guides
+                    : { [focus]: guides[focus] || { error: `Unknown focus area: ${focus}. Options: email, icp, knowledge_base, contacts, campaigns, integrations, all` } };
+
+                result = {
+                    title: "OutreachPilot Setup Guide",
+                    recommended_order: [
+                        "1. email — Connect your email account",
+                        "2. knowledge_base — Fill out product/company knowledge",
+                        "3. icp — Configure your ideal customer profile",
+                        "4. contacts — Import or research your target audience",
+                        "5. campaigns — Create and launch your first campaign",
+                        "6. integrations — (Optional) Connect LinkedIn, Slack, Calendar",
+                    ],
+                    quick_start: "After completing steps 1-3, try: 'Build a 3-step email campaign targeting [your audience] about [your product]' — the AI will use your knowledge base and ICP to generate high-quality copy.",
+                    guides: selectedGuides,
+                    pro_tips: [
+                        "Run setup_workspace anytime to check what's configured vs missing",
+                        "The knowledge base is the single biggest lever for campaign quality",
+                        "Start small: 3-step email campaign to 20 contacts, then iterate",
+                        "Use the pilot tool for complex workflows — it has 35+ internal tools",
+                    ],
+                };
                 break;
             }
 
