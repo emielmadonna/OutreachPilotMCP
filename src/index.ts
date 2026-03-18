@@ -34,7 +34,7 @@ if (!API_KEY) {
 
 async function apiRequest(
     path: string,
-    method: "GET" | "POST" | "PATCH" | "DELETE" = "GET",
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" = "GET",
     body?: Record<string, unknown>
 ): Promise<unknown> {
     const url = `${API_URL}${path}`;
@@ -209,6 +209,38 @@ const TOOLS: Tool[] = [
         },
     },
 
+    {
+        name: "get_contact",
+        description:
+            "Get a single contact by its ID. Returns all fields including email, phone, LinkedIn URL, company, status, tags, and custom context.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                contact_id: {
+                    type: "string",
+                    description: "ID of the contact to retrieve.",
+                },
+            },
+            required: ["contact_id"],
+        },
+    },
+
+    {
+        name: "delete_contact",
+        description:
+            "Permanently delete a contact from the CRM by its ID. This cannot be undone.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                contact_id: {
+                    type: "string",
+                    description: "ID of the contact to delete.",
+                },
+            },
+            required: ["contact_id"],
+        },
+    },
+
     // ── CAMPAIGNS ────────────────────────────────────────────────────────────
 
     {
@@ -285,6 +317,50 @@ const TOOLS: Tool[] = [
         },
     },
 
+    {
+        name: "trigger_campaign",
+        description:
+            "Enroll a contact into an active campaign. Can provide a contact_id for an existing contact, or provide contact fields (email, first_name, last_name, company) to auto-create and enroll. The campaign must be active.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                campaign_id: {
+                    type: "string",
+                    description: "ID of the active campaign to enroll the contact into.",
+                },
+                contact_id: {
+                    type: "string",
+                    description: "ID of an existing contact (use search_contacts to find it). If not provided, supply email/linkedin_url to auto-create.",
+                },
+                email: {
+                    type: "string",
+                    description: "Email of the contact. Used to find or auto-create the contact if contact_id is not provided.",
+                },
+                first_name: { type: "string" },
+                last_name: { type: "string" },
+                company: { type: "string" },
+                linkedin_url: { type: "string" },
+            },
+            required: ["campaign_id"],
+        },
+    },
+
+    {
+        name: "get_campaign_status",
+        description:
+            "Get the status and audience statistics of a campaign. Returns total contacts enrolled, active, completed, paused, bounced, and failed counts.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                campaign_id: {
+                    type: "string",
+                    description: "ID of the campaign to check.",
+                },
+            },
+            required: ["campaign_id"],
+        },
+    },
+
     // ── COMPANIES ────────────────────────────────────────────────────────────
 
     {
@@ -343,6 +419,59 @@ const TOOLS: Tool[] = [
                 },
             },
             required: ["companies"],
+        },
+    },
+
+    {
+        name: "get_company",
+        description:
+            "Get a single company account by its ID. Returns all fields including name, domain, industry, size, and custom context.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                company_id: {
+                    type: "string",
+                    description: "ID of the company to retrieve.",
+                },
+            },
+            required: ["company_id"],
+        },
+    },
+
+    {
+        name: "update_company",
+        description:
+            "Update an existing company's fields. You must provide the company_id.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                company_id: {
+                    type: "string",
+                    description: "ID of the company to update.",
+                },
+                name: { type: "string", description: "Updated company name." },
+                domain: { type: "string", description: "Updated company domain (e.g. 'stripe.com')." },
+                industry: { type: "string", description: "Updated industry." },
+                size: { type: "string", description: "Updated company size (e.g. '10-50', '500+')." },
+                context: { type: "object", description: "Custom metadata to merge into the company's context." },
+            },
+            required: ["company_id"],
+        },
+    },
+
+    {
+        name: "delete_company",
+        description:
+            "Permanently delete a company account from the CRM. Contacts linked to this company will be unlinked but not deleted.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                company_id: {
+                    type: "string",
+                    description: "ID of the company to delete.",
+                },
+            },
+            required: ["company_id"],
         },
     },
 
@@ -546,6 +675,128 @@ VOICE DIALING
             required: ["job_id"],
         },
     },
+
+    // ── EMAIL ────────────────────────────────────────────────────────────────
+
+    {
+        name: "send_email",
+        description:
+            "Send a one-off email through your connected email account. Costs 1 credit per send. For bulk sending, use campaigns instead.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                to: {
+                    type: "string",
+                    description: "Recipient email address.",
+                },
+                subject: {
+                    type: "string",
+                    description: "Email subject line.",
+                },
+                body: {
+                    type: "string",
+                    description: "Email body (plain text — will be auto-converted to HTML).",
+                },
+                html_body: {
+                    type: "string",
+                    description: "Email body as raw HTML. Use this instead of 'body' for rich formatting.",
+                },
+                from_email: {
+                    type: "string",
+                    description: "Optional. Which connected email account to send from. If not specified, uses the default connected account.",
+                },
+            },
+            required: ["to", "subject"],
+        },
+    },
+
+    // ── FOLDERS ──────────────────────────────────────────────────────────────
+
+    {
+        name: "list_folders",
+        description:
+            "List all contact folders in the workspace. Folders organize contacts into groups for campaigns. Returns folder names, IDs, and contact counts.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                search: {
+                    type: "string",
+                    description: "Filter folders by name.",
+                },
+                limit: {
+                    type: "number",
+                    description: "Max folders to return. Default 100.",
+                    default: 100,
+                },
+            },
+        },
+    },
+
+    {
+        name: "create_folder",
+        description:
+            "Create a new contact folder. If a folder with the same name already exists, returns the existing one.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                name: {
+                    type: "string",
+                    description: "Name for the new folder.",
+                },
+            },
+            required: ["name"],
+        },
+    },
+
+    // ── CAMPAIGN DETAIL ──────────────────────────────────────────────────────
+
+    {
+        name: "get_campaign",
+        description:
+            "Get full details of a single campaign including its config, steps, and audience statistics.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                campaign_id: {
+                    type: "string",
+                    description: "ID of the campaign to retrieve.",
+                },
+            },
+            required: ["campaign_id"],
+        },
+    },
+
+    {
+        name: "update_campaign",
+        description:
+            "Update a campaign's name, config, steps, or type. For status changes (pause/resume/activate), use update_campaign_status instead.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                campaign_id: {
+                    type: "string",
+                    description: "ID of the campaign to update.",
+                },
+                name: {
+                    type: "string",
+                    description: "New campaign name.",
+                },
+                config: {
+                    type: "object",
+                    description: "Updated campaign configuration (stop_on_reply, target_folder_id, etc.).",
+                },
+                steps: {
+                    type: "array",
+                    description: "Campaign steps/sequence. Each step has a type (email, wait, linkedin, etc.) and content.",
+                },
+                type: {
+                    type: "string",
+                    description: "Campaign type: email, sms, voice, linkedin, multi_channel.",
+                },
+            },
+            required: ["campaign_id"],
+        },
+    },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -610,6 +861,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                 break;
             }
 
+            case "get_contact": {
+                result = await apiRequest(
+                    `/api/v1/contacts/${encodeURIComponent(args?.contact_id as string)}`
+                );
+                break;
+            }
+
+            case "delete_contact": {
+                result = await apiRequest(
+                    `/api/v1/contacts/${encodeURIComponent(args?.contact_id as string)}`,
+                    "DELETE"
+                );
+                break;
+            }
+
             case "update_contact": {
                 const { contact_id, ...fields } = args as Record<string, unknown>;
                 result = await apiRequest("/api/v1/contacts", "PATCH", {
@@ -640,6 +906,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                 break;
             }
 
+            case "trigger_campaign": {
+                const { campaign_id: triggerCampId, ...triggerFields } = args as Record<string, unknown>;
+                result = await apiRequest(
+                    `/api/v1/campaigns/${encodeURIComponent(triggerCampId as string)}/trigger`,
+                    "POST",
+                    triggerFields
+                );
+                break;
+            }
+
+            case "get_campaign_status": {
+                result = await apiRequest(
+                    `/api/v1/campaigns/${encodeURIComponent(args?.campaign_id as string)}/status`
+                );
+                break;
+            }
+
             case "update_campaign_status": {
                 result = await apiRequest("/api/v1/campaigns", "PATCH", {
                     campaign_id: args?.campaign_id,
@@ -665,6 +948,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                     companies: args?.companies,
                     upsert: args?.upsert ?? false,
                 });
+                break;
+            }
+
+            case "get_company": {
+                result = await apiRequest(
+                    `/api/v1/companies/${encodeURIComponent(args?.company_id as string)}`
+                );
+                break;
+            }
+
+            case "update_company": {
+                const { company_id: updateCompId, ...companyFields } = args as Record<string, unknown>;
+                result = await apiRequest(
+                    `/api/v1/companies/${encodeURIComponent(updateCompId as string)}`,
+                    "PUT",
+                    companyFields
+                );
+                break;
+            }
+
+            case "delete_company": {
+                result = await apiRequest(
+                    `/api/v1/companies/${encodeURIComponent(args?.company_id as string)}`,
+                    "DELETE"
+                );
                 break;
             }
 
@@ -725,6 +1033,55 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                     folder_name: args?.folder_name,
                     campaign_id: args?.campaign_id,
                 });
+                break;
+            }
+
+            // ── EMAIL ─────────────────────────────────────────────────────
+
+            case "send_email": {
+                result = await apiRequest("/api/v1/email/send", "POST", {
+                    to: args?.to,
+                    subject: args?.subject,
+                    body: args?.body,
+                    html_body: args?.html_body,
+                    from_email: args?.from_email,
+                });
+                break;
+            }
+
+            // ── FOLDERS ──────────────────────────────────────────────────
+
+            case "list_folders": {
+                const params = new URLSearchParams();
+                if (args?.search) params.set("search", args.search as string);
+                if (args?.limit) params.set("limit", String(args.limit));
+                result = await apiRequest(`/api/v1/folders?${params.toString()}`);
+                break;
+            }
+
+            case "create_folder": {
+                result = await apiRequest("/api/v1/folders", "POST", {
+                    name: args?.name,
+                });
+                break;
+            }
+
+            // ── CAMPAIGN DETAIL ──────────────────────────────────────────
+
+            case "get_campaign": {
+                result = await apiRequest(
+                    `/api/v1/campaigns/${encodeURIComponent(args?.campaign_id as string)}`
+                );
+                break;
+            }
+
+            case "update_campaign": {
+                const { campaign_id: updCampId, ...campFields } = args as Record<string, unknown>;
+                result = await apiRequest(
+                    `/api/v1/campaigns/${encodeURIComponent(updCampId as string)}`,
+                    "PATCH",
+                    campFields
+                );
                 break;
             }
 
