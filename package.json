@@ -1,25 +1,41 @@
 {
-  "name": "@outreachpilot/mcp-server",
-  "version": "2.0.0",
-  "description": "The official OutreachPilot MCP Server — connect AI agents to your OutreachPilot workspace.",
+  "name": "outreachpilot-mcp",
+  "version": "2.1.0",
+  "description": "The official OutreachPilot MCP Server — connect AI agents to your OutreachPilot workspace. 31 tools for contacts, campaigns, email, research, and more.",
   "type": "module",
   "main": "build/index.js",
   "bin": {
     "outreachpilot-mcp": "build/index.js"
   },
+  "files": [
+    "build",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "outreachpilot",
     "ai",
     "crm",
     "sales",
-    "outreach"
+    "outreach",
+    "email",
+    "campaign",
+    "automation",
+    "claude",
+    "cursor"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emielmadonna/OutreachPilotMCP.git"
+  },
+  "homepage": "https://useoutreachpilot.com",
   "author": "OutreachPilot",
   "license": "MIT",
   "dependencies": {

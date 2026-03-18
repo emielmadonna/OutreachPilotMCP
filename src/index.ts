@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 /**
  * OutreachPilot MCP Server
  *
@@ -6,7 +8,11 @@
  *
  * All tools call the real OutreachPilot public API.
  * Auth: Bearer API key via OUTREACHPILOT_API_KEY env variable.
+ *
+ * Install: npx outreachpilot-mcp
  */
+
+import "dotenv/config";
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -15,9 +21,6 @@ import {
     ListToolsRequestSchema,
     type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const API_KEY = process.env.OUTREACHPILOT_API_KEY;
 const API_URL = (process.env.OUTREACHPILOT_API_URL || "https://useoutreachpilot.com").replace(/\/$/, "");

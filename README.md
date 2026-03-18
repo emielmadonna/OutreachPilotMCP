@@ -16,6 +16,30 @@ Connect your AI agents — Claude Desktop, Cursor, LangChain, CrewAI, or any MCP
 
 ## Quick Start
 
+### Option A: npx (recommended — zero install)
+
+No download needed. Just configure your MCP client:
+
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "outreachpilot": {
+      "command": "npx",
+      "args": ["-y", "outreachpilot-mcp"],
+      "env": {
+        "OUTREACHPILOT_API_KEY": "op_live_your_key_here",
+        "OUTREACHPILOT_API_URL": "https://useoutreachpilot.com"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop — done. ✅
+
+### Option B: Manual install (for development)
+
 ```bash
 git clone https://github.com/emielmadonna/OutreachPilotMCP.git
 cd OutreachPilotMCP
@@ -63,7 +87,7 @@ Restart Claude Desktop — you'll see OutreachPilot tools available in the toolb
 1. Open **Cursor Settings → Features → MCP**
 2. Click `+ Add New MCP Server`
 3. Set **Name** to `OutreachPilot`, **Type** to `command`
-4. Set **Command** to: `node /absolute/path/to/OutreachPilotMCP/build/index.js`
+4. Set **Command** to: `npx -y outreachpilot-mcp`
 5. Add env vars: `OUTREACHPILOT_API_KEY` and `OUTREACHPILOT_API_URL`
 
 ---
