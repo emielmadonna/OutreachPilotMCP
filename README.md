@@ -1,8 +1,12 @@
 # OutreachPilot MCP Server
 
-The official [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server for [OutreachPilot](https://useoutreachpilot.com).
+The official [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server for **[OutreachPilot — AI-Powered Sales Outreach Platform](https://useoutreachpilot.com)**.
 
 Connect your AI agents — Claude Desktop, Cursor, LangChain, CrewAI, or any MCP-compatible client — directly to your OutreachPilot workspace to automate outreach, research leads, manage campaigns, and much more.
+
+**OutreachPilot** replaces your entire sales stack (Apollo, Instantly, Expandi) with one AI-powered platform. It combines [AI SDR automation](https://useoutreachpilot.com/glossary/ai-sdr), [multi-channel outreach](https://useoutreachpilot.com/glossary/multi-channel-outreach) (email, LinkedIn, SMS, phone), live prospect research, and autonomous AI reply handling that books meetings 24/7.
+
+📖 [API & MCP Documentation](https://useoutreachpilot.com/for-ai-agents) · 📝 [Sales Outreach Blog](https://useoutreachpilot.com/blogs) · 🧮 [ROI Calculator](https://useoutreachpilot.com/roi-calculator)
 
 ---
 
