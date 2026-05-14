@@ -61,6 +61,22 @@ Build the server:
 npm run build
 ```
 
+### CLI mode
+
+The same binary can run a few quick command-line checks without starting an MCP client:
+
+```bash
+outreachpilot-mcp list-tools
+outreachpilot-mcp doctor
+outreachpilot-mcp pilot "Check my workspace setup and tell me what is missing"
+```
+
+`doctor` verifies API connectivity. `pilot` sends a natural-language command to `/api/v1/chat`.
+
+### Write safety
+
+Tools that can send, delete, archive, pause, or otherwise make irreversible changes now return a confirmation payload first. Re-run the same tool with `confirmed: true` to execute. The server also sends stable `Idempotency-Key` headers for writes so retries are less likely to duplicate work.
+
 ---
 
 ## Connecting to Claude Desktop

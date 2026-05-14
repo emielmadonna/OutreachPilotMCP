@@ -14,6 +14,8 @@
 
 import "dotenv/config";
 
+import crypto from "node:crypto";
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -21,14 +23,14 @@ import {
     ListToolsRequestSchema,
     type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 
 const API_KEY = process.env.OUTREACHPILOT_API_KEY;
 const API_URL = (process.env.OUTREACHPILOT_API_URL || "https://useoutreachpilot.com").replace(/\/$/, "");
+const CLI_COMMAND = process.argv[2];
 
-if (!API_KEY) {
-    console.error("Error: OUTREACHPILOT_API_KEY environment variable is not set.");
-    console.error("Create a .env file with: OUTREACHPILOT_API_KEY=op_your_key_here");
-    process.exit(1);
+if (!API_KEY && !["list-tools", "help", "--help", "-h"].includes(CLI_COMMAND || "")) {
+    console.error("Warning: OUTREACHPILOT_API_KEY is not set. Tool calls that reach the API will fail until it is provided.");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38,14 +40,22 @@ if (!API_KEY) {
 async function apiRequest(
     path: string,
     method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" = "GET",
-    body?: Record<string, unknown>
+    body?: Record<string, unknown>,
+    options: { idempotencyKey?: string } = {}
 ): Promise<unknown> {
+    if (!API_KEY) {
+        throw new Error("OUTREACHPILOT_API_KEY is not set. Create one in OutreachPilot Settings -> Workspace -> API Keys.");
+    }
+
     const url = `${API_URL}${path}`;
     const headers: Record<string, string> = {
         Authorization: `Bearer ${API_KEY}`,
         "Content-Type": "application/json",
-        "User-Agent": "OutreachPilot-MCP/2.0.0",
+        "User-Agent": "OutreachPilot-MCP/2.1.0",
     };
+    if (options.idempotencyKey) {
+        headers["Idempotency-Key"] = options.idempotencyKey;
+    }
 
     const response = await fetch(url, {
         method,
@@ -75,6 +85,41 @@ async function apiRequest(
 
 function formatResult(data: unknown): string {
     return JSON.stringify(data, null, 2);
+}
+
+function stableStringify(value: unknown): string {
+    if (value === null || typeof value !== "object") {
+        return JSON.stringify(value);
+    }
+    if (Array.isArray(value)) {
+        return `[${value.map(stableStringify).join(",")}]`;
+    }
+    const objectValue = value as Record<string, unknown>;
+    return `{${Object.keys(objectValue)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${stableStringify(objectValue[key])}`)
+        .join(",")}}`;
+}
+
+function makeStableIdempotencyKey(toolName: string, args: Record<string, unknown>): string {
+    const { confirmed: _confirmed, idempotency_key: _idempotencyKey, ...stableArgs } = args;
+    const digest = crypto
+        .createHash("sha256")
+        .update(`${toolName}:${stableStringify(stableArgs)}`)
+        .digest("hex")
+        .slice(0, 32);
+    return `mcp:${toolName}:${digest}`;
+}
+
+function idempotencyKeyFor(toolName: string, args: Record<string, unknown>): string {
+    return typeof args.idempotency_key === "string" && args.idempotency_key.trim()
+        ? args.idempotency_key.trim()
+        : makeStableIdempotencyKey(toolName, args);
+}
+
+function stripHelperFields(args: Record<string, unknown>): Record<string, unknown> {
+    const { confirmed: _confirmed, idempotency_key: _idempotencyKey, ...apiArgs } = args;
+    return apiArgs;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -176,6 +221,10 @@ const TOOLS: Tool[] = [
                     type: "string",
                     description: "Optional campaign ID to automatically enroll the created contacts.",
                 },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate contact creation on retries.",
+                },
             },
             required: ["contacts"],
         },
@@ -191,6 +240,15 @@ const TOOLS: Tool[] = [
                 contact_id: {
                     type: "string",
                     description: "ID of the contact to update.",
+                },
+                confirmed: {
+                    type: "boolean",
+                    description: "Required when marking a contact not_interested or unsubscribed.",
+                    default: false,
+                },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate write execution on retries.",
                 },
                 first_name: { type: "string" },
                 last_name: { type: "string" },
@@ -238,6 +296,15 @@ const TOOLS: Tool[] = [
                 contact_id: {
                     type: "string",
                     description: "ID of the contact to delete.",
+                },
+                confirmed: {
+                    type: "boolean",
+                    description: "Must be true to permanently delete the contact.",
+                    default: false,
+                },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate delete attempts on retries.",
                 },
             },
             required: ["contact_id"],
@@ -295,6 +362,10 @@ const TOOLS: Tool[] = [
                     type: "object",
                     description: "Optional configuration object (stop_on_reply, target_folder_id, etc.).",
                 },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate campaign creation on retries.",
+                },
             },
             required: ["name"],
         },
@@ -314,6 +385,15 @@ const TOOLS: Tool[] = [
                 status: {
                     type: "string",
                     description: "New status: active, paused, draft, completed, archived.",
+                },
+                confirmed: {
+                    type: "boolean",
+                    description: "Must be true for active, paused, and archived status changes.",
+                    default: false,
+                },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate status updates on retries.",
                 },
             },
             required: ["campaign_id", "status"],
@@ -343,6 +423,15 @@ const TOOLS: Tool[] = [
                 last_name: { type: "string" },
                 company: { type: "string" },
                 linkedin_url: { type: "string" },
+                confirmed: {
+                    type: "boolean",
+                    description: "Must be true to enroll a contact into the campaign.",
+                    default: false,
+                },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate enrollment attempts on retries.",
+                },
             },
             required: ["campaign_id"],
         },
@@ -420,6 +509,10 @@ const TOOLS: Tool[] = [
                     description: "Update matching companies instead of erroring. Default false.",
                     default: false,
                 },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate company creation on retries.",
+                },
             },
             required: ["companies"],
         },
@@ -457,6 +550,15 @@ const TOOLS: Tool[] = [
                 industry: { type: "string", description: "Updated industry." },
                 size: { type: "string", description: "Updated company size (e.g. '10-50', '500+')." },
                 context: { type: "object", description: "Custom metadata to merge into the company's context." },
+                confirmed: {
+                    type: "boolean",
+                    description: "Must be true to update the company.",
+                    default: false,
+                },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate company updates on retries.",
+                },
             },
             required: ["company_id"],
         },
@@ -472,6 +574,15 @@ const TOOLS: Tool[] = [
                 company_id: {
                     type: "string",
                     description: "ID of the company to delete.",
+                },
+                confirmed: {
+                    type: "boolean",
+                    description: "Must be true to permanently delete the company.",
+                    default: false,
+                },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate delete attempts on retries.",
                 },
             },
             required: ["company_id"],
@@ -522,6 +633,10 @@ const TOOLS: Tool[] = [
                     type: "string",
                     description: "Optional signing secret for HMAC verification of payloads.",
                 },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate webhook registration on retries.",
+                },
             },
             required: ["url", "events"],
         },
@@ -536,6 +651,15 @@ const TOOLS: Tool[] = [
                 webhook_id: {
                     type: "string",
                     description: "ID of the webhook to delete (from list_webhooks).",
+                },
+                confirmed: {
+                    type: "boolean",
+                    description: "Must be true to delete the webhook.",
+                    default: false,
+                },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate delete attempts on retries.",
                 },
             },
             required: ["webhook_id"],
@@ -634,6 +758,10 @@ VOICE DIALING
                     description: "Set to false for cost estimate, true to execute. Always get estimate first.",
                     default: false,
                 },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate research job creation on retries.",
+                },
             },
             required: ["query"],
         },
@@ -674,6 +802,15 @@ VOICE DIALING
                     type: "string",
                     description: "Auto-enroll imported contacts into this campaign.",
                 },
+                confirmed: {
+                    type: "boolean",
+                    description: "Must be true to import research results into the CRM.",
+                    default: false,
+                },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate imports on retries.",
+                },
             },
             required: ["job_id"],
         },
@@ -707,6 +844,15 @@ VOICE DIALING
                 from_email: {
                     type: "string",
                     description: "Optional. Which connected email account to send from. If not specified, uses the default connected account.",
+                },
+                confirmed: {
+                    type: "boolean",
+                    description: "Must be true to send the email.",
+                    default: false,
+                },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate email sends on retries.",
                 },
             },
             required: ["to", "subject"],
@@ -745,6 +891,10 @@ VOICE DIALING
                 name: {
                     type: "string",
                     description: "Name for the new folder.",
+                },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate folder creation on retries.",
                 },
             },
             required: ["name"],
@@ -796,6 +946,15 @@ VOICE DIALING
                     type: "string",
                     description: "Campaign type: email, sms, voice, linkedin, multi_channel.",
                 },
+                confirmed: {
+                    type: "boolean",
+                    description: "Must be true to update the campaign.",
+                    default: false,
+                },
+                idempotency_key: {
+                    type: "string",
+                    description: "Optional stable key to prevent duplicate campaign updates on retries.",
+                },
             },
             required: ["campaign_id"],
         },
@@ -832,13 +991,266 @@ VOICE DIALING
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Runtime input validation and write safety
+// ─────────────────────────────────────────────────────────────────────────────
+
+const optionalString = z.string().trim().min(1).optional();
+const helperFields = {
+    confirmed: z.boolean().optional(),
+    idempotency_key: z.string().trim().min(1).optional(),
+};
+const contactStatusSchema = z.enum(["new", "contacted", "replied", "interested", "meeting_booked", "not_interested", "unsubscribed"]).optional();
+const campaignStatusSchema = z.enum(["active", "paused", "draft", "completed", "archived"]).optional();
+const campaignTypeSchema = z.enum(["email", "sms", "voice", "linkedin", "multi_channel"]).optional();
+const researchDepthSchema = z.enum(["standard", "thorough", "deep"]).optional();
+
+const contactPayloadSchema = z.object({
+    first_name: optionalString,
+    last_name: optionalString,
+    email: optionalString,
+    phone: optionalString,
+    company: optionalString,
+    title: optionalString,
+    linkedin_url: optionalString,
+    status: contactStatusSchema,
+}).passthrough();
+
+const companyPayloadSchema = z.object({
+    name: optionalString,
+    domain: optionalString,
+    industry: optionalString,
+    size: optionalString,
+}).passthrough();
+
+const TOOL_SCHEMAS: Record<string, z.ZodType<unknown>> = {
+    search_contacts: z.object({
+        query: z.string().trim().min(1),
+        limit: z.number().int().positive().max(200).optional(),
+        status: contactStatusSchema,
+        folder_id: optionalString,
+    }),
+    list_contacts: z.object({
+        limit: z.number().int().positive().max(200).optional(),
+        offset: z.number().int().min(0).optional(),
+        status: contactStatusSchema,
+        folder_id: optionalString,
+    }),
+    create_contact: z.object({
+        contacts: z.array(contactPayloadSchema).min(1).max(200),
+        upsert: z.boolean().optional(),
+        campaign_id: optionalString,
+        ...helperFields,
+    }),
+    update_contact: z.object({
+        contact_id: z.string().trim().min(1),
+        first_name: optionalString,
+        last_name: optionalString,
+        email: optionalString,
+        phone: optionalString,
+        company: optionalString,
+        title: optionalString,
+        status: contactStatusSchema,
+        tags: z.array(z.string()).optional(),
+        linkedin_url: optionalString,
+        ...helperFields,
+    }),
+    get_contact: z.object({ contact_id: z.string().trim().min(1) }),
+    delete_contact: z.object({ contact_id: z.string().trim().min(1), ...helperFields }),
+    list_campaigns: z.object({
+        limit: z.number().int().positive().max(200).optional(),
+        offset: z.number().int().min(0).optional(),
+        status: campaignStatusSchema,
+        type: campaignTypeSchema,
+    }),
+    create_campaign: z.object({
+        name: z.string().trim().min(1),
+        type: campaignTypeSchema,
+        config: z.record(z.string(), z.unknown()).optional(),
+        ...helperFields,
+    }),
+    update_campaign_status: z.object({
+        campaign_id: z.string().trim().min(1),
+        status: z.enum(["active", "paused", "draft", "completed", "archived"]),
+        ...helperFields,
+    }),
+    trigger_campaign: z.object({
+        campaign_id: z.string().trim().min(1),
+        contact_id: optionalString,
+        email: optionalString,
+        first_name: optionalString,
+        last_name: optionalString,
+        company: optionalString,
+        linkedin_url: optionalString,
+        ...helperFields,
+    }),
+    get_campaign_status: z.object({ campaign_id: z.string().trim().min(1) }),
+    list_companies: z.object({
+        limit: z.number().int().positive().max(200).optional(),
+        offset: z.number().int().min(0).optional(),
+        search: optionalString,
+        domain: optionalString,
+    }),
+    create_company: z.object({
+        companies: z.array(companyPayloadSchema).min(1).max(200),
+        upsert: z.boolean().optional(),
+        ...helperFields,
+    }),
+    get_company: z.object({ company_id: z.string().trim().min(1) }),
+    update_company: z.object({
+        company_id: z.string().trim().min(1),
+        name: optionalString,
+        domain: optionalString,
+        industry: optionalString,
+        size: optionalString,
+        context: z.record(z.string(), z.unknown()).optional(),
+        ...helperFields,
+    }),
+    delete_company: z.object({ company_id: z.string().trim().min(1), ...helperFields }),
+    get_credit_balance: z.object({}),
+    list_webhooks: z.object({}),
+    create_webhook: z.object({
+        url: z.string().url(),
+        events: z.array(z.string().trim().min(1)).min(1),
+        secret: optionalString,
+        ...helperFields,
+    }),
+    delete_webhook: z.object({ webhook_id: z.string().trim().min(1), ...helperFields }),
+    pilot: z.object({
+        message: z.string().trim().min(1),
+        thread_id: optionalString,
+    }),
+    run_research: z.object({
+        query: z.string().trim().min(1),
+        target_type: z.enum(["companies", "people"]).optional(),
+        limit: z.number().int().positive().max(50).optional(),
+        depth: researchDepthSchema,
+        confirmed: z.boolean().optional(),
+        idempotency_key: z.string().trim().min(1).optional(),
+    }),
+    check_research_status: z.object({ job_id: z.string().trim().min(1) }),
+    import_research_results: z.object({
+        job_id: z.string().trim().min(1),
+        folder_name: optionalString,
+        campaign_id: optionalString,
+        ...helperFields,
+    }),
+    send_email: z.object({
+        to: z.string().email(),
+        subject: z.string().trim().min(1),
+        body: optionalString,
+        html_body: optionalString,
+        from_email: z.string().email().optional(),
+        ...helperFields,
+    }).refine((value) => Boolean(value.body || value.html_body), {
+        message: "Either body or html_body is required.",
+        path: ["body"],
+    }),
+    list_folders: z.object({
+        search: optionalString,
+        limit: z.number().int().positive().max(200).optional(),
+    }),
+    create_folder: z.object({
+        name: z.string().trim().min(1),
+        ...helperFields,
+    }),
+    get_campaign: z.object({ campaign_id: z.string().trim().min(1) }),
+    update_campaign: z.object({
+        campaign_id: z.string().trim().min(1),
+        name: optionalString,
+        config: z.record(z.string(), z.unknown()).optional(),
+        steps: z.array(z.unknown()).optional(),
+        type: campaignTypeSchema,
+        ...helperFields,
+    }),
+    setup_workspace: z.object({}),
+    onboarding_guide: z.object({
+        focus: z.enum(["email", "icp", "knowledge_base", "contacts", "campaigns", "integrations", "all"]).optional(),
+    }),
+};
+
+function parseToolArgs(toolName: string, rawArgs: unknown): Record<string, unknown> {
+    const schema = TOOL_SCHEMAS[toolName];
+    if (!schema) {
+        throw new Error(`Unknown tool: "${toolName}". Available tools: ${TOOLS.map((tool) => tool.name).join(", ")}`);
+    }
+
+    const parsed = schema.safeParse(rawArgs ?? {});
+    if (!parsed.success) {
+        const details = parsed.error.issues
+            .map((issue) => `${issue.path.join(".") || "arguments"}: ${issue.message}`)
+            .join("; ");
+        throw new Error(`Invalid arguments for "${toolName}": ${details}`);
+    }
+
+    return parsed.data as Record<string, unknown>;
+}
+
+function confirmationSummary(toolName: string, args: Record<string, unknown>): string | null {
+    switch (toolName) {
+        case "send_email":
+            return `Send email to ${String(args.to)} with subject "${String(args.subject)}".`;
+        case "delete_contact":
+            return `Permanently delete contact ${String(args.contact_id)}.`;
+        case "delete_company":
+            return `Permanently delete company ${String(args.company_id)}.`;
+        case "delete_webhook":
+            return `Delete webhook ${String(args.webhook_id)}.`;
+        case "trigger_campaign":
+            return `Enroll a contact into campaign ${String(args.campaign_id)}.`;
+        case "import_research_results":
+            return `Import research job ${String(args.job_id)} into the CRM.`;
+        case "update_campaign":
+            return `Update campaign ${String(args.campaign_id)}.`;
+        case "update_company":
+            return `Update company ${String(args.company_id)}.`;
+        case "update_campaign_status": {
+            const status = String(args.status);
+            return ["active", "paused", "archived"].includes(status)
+                ? `Change campaign ${String(args.campaign_id)} status to ${status}.`
+                : null;
+        }
+        case "update_contact": {
+            const status = typeof args.status === "string" ? args.status : "";
+            return ["not_interested", "unsubscribed"].includes(status)
+                ? `Mark contact ${String(args.contact_id)} as ${status}.`
+                : null;
+        }
+        default:
+            return null;
+    }
+}
+
+function confirmationResult(toolName: string, args: Record<string, unknown>): Record<string, unknown> | null {
+    const summary = confirmationSummary(toolName, args);
+    if (!summary || args.confirmed === true) {
+        return null;
+    }
+
+    const idempotencyKey = idempotencyKeyFor(toolName, args);
+    return {
+        needs_confirmation: true,
+        tool: toolName,
+        summary,
+        message: `${summary} Re-run this tool with confirmed: true to execute.`,
+        next_call: {
+            tool: toolName,
+            arguments: {
+                ...args,
+                confirmed: true,
+                idempotency_key: idempotencyKey,
+            },
+        },
+    };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MCP Server setup
 // ─────────────────────────────────────────────────────────────────────────────
 
 const server = new Server(
     {
         name: "OutreachPilot MCP Server",
-        version: "2.0.0",
+        version: "2.1.0",
     },
     {
         capabilities: {
@@ -853,11 +1265,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 }));
 
 // Execute tools
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
-    const { name, arguments: args } = request.params;
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name } = request.params;
 
     try {
+        const args = parseToolArgs(name, request.params.arguments);
+        const pendingConfirmation = confirmationResult(name, args);
+        if (pendingConfirmation) {
+            return {
+                content: [{ type: "text", text: formatResult(pendingConfirmation) }],
+            };
+        }
+
+        const writeOptions = { idempotencyKey: idempotencyKeyFor(name, args) };
         let result: unknown;
 
         switch (name) {
@@ -889,7 +1309,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                     contacts: args?.contacts,
                     upsert: args?.upsert ?? false,
                     campaign_id: args?.campaign_id,
-                });
+                }, writeOptions);
                 break;
             }
 
@@ -903,7 +1323,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
             case "delete_contact": {
                 result = await apiRequest(
                     `/api/v1/contacts/${encodeURIComponent(args?.contact_id as string)}`,
-                    "DELETE"
+                    "DELETE",
+                    undefined,
+                    writeOptions
                 );
                 break;
             }
@@ -913,7 +1335,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                 result = await apiRequest("/api/v1/contacts", "PATCH", {
                     contact_id,
                     ...fields,
-                });
+                }, writeOptions);
                 break;
             }
 
@@ -934,16 +1356,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                     name: args?.name,
                     type: args?.type ?? "email",
                     config: args?.config,
-                });
+                }, writeOptions);
                 break;
             }
 
             case "trigger_campaign": {
-                const { campaign_id: triggerCampId, ...triggerFields } = args as Record<string, unknown>;
+                const { campaign_id: triggerCampId, ...triggerFields } = stripHelperFields(args);
                 result = await apiRequest(
                     `/api/v1/campaigns/${encodeURIComponent(triggerCampId as string)}/trigger`,
                     "POST",
-                    triggerFields
+                    triggerFields,
+                    writeOptions
                 );
                 break;
             }
@@ -959,7 +1382,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                 result = await apiRequest("/api/v1/campaigns", "PATCH", {
                     campaign_id: args?.campaign_id,
                     status: args?.status,
-                });
+                }, writeOptions);
                 break;
             }
 
@@ -979,7 +1402,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                 result = await apiRequest("/api/v1/companies", "POST", {
                     companies: args?.companies,
                     upsert: args?.upsert ?? false,
-                });
+                }, writeOptions);
                 break;
             }
 
@@ -991,11 +1414,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
             }
 
             case "update_company": {
-                const { company_id: updateCompId, ...companyFields } = args as Record<string, unknown>;
+                const { company_id: updateCompId, ...companyFields } = stripHelperFields(args);
                 result = await apiRequest(
                     `/api/v1/companies/${encodeURIComponent(updateCompId as string)}`,
                     "PUT",
-                    companyFields
+                    companyFields,
+                    writeOptions
                 );
                 break;
             }
@@ -1003,7 +1427,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
             case "delete_company": {
                 result = await apiRequest(
                     `/api/v1/companies/${encodeURIComponent(args?.company_id as string)}`,
-                    "DELETE"
+                    "DELETE",
+                    undefined,
+                    writeOptions
                 );
                 break;
             }
@@ -1027,14 +1453,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                     url: args?.url,
                     events: args?.events,
                     secret: args?.secret,
-                });
+                }, writeOptions);
                 break;
             }
 
             case "delete_webhook": {
                 result = await apiRequest(
                     `/api/v1/webhooks?id=${encodeURIComponent(args?.webhook_id as string)}`,
-                    "DELETE"
+                    "DELETE",
+                    undefined,
+                    writeOptions
                 );
                 break;
             }
@@ -1048,7 +1476,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                     limit: args?.limit ?? 10,
                     depth: args?.depth ?? "standard",
                     confirmed: args?.confirmed ?? false,
-                });
+                }, writeOptions);
                 break;
             }
 
@@ -1064,7 +1492,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                     job_id: args?.job_id,
                     folder_name: args?.folder_name,
                     campaign_id: args?.campaign_id,
-                });
+                }, writeOptions);
                 break;
             }
 
@@ -1077,7 +1505,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                     body: args?.body,
                     html_body: args?.html_body,
                     from_email: args?.from_email,
-                });
+                }, writeOptions);
                 break;
             }
 
@@ -1094,7 +1522,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
             case "create_folder": {
                 result = await apiRequest("/api/v1/folders", "POST", {
                     name: args?.name,
-                });
+                }, writeOptions);
                 break;
             }
 
@@ -1108,11 +1536,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
             }
 
             case "update_campaign": {
-                const { campaign_id: updCampId, ...campFields } = args as Record<string, unknown>;
+                const { campaign_id: updCampId, ...campFields } = stripHelperFields(args);
                 result = await apiRequest(
                     `/api/v1/campaigns/${encodeURIComponent(updCampId as string)}`,
                     "PATCH",
-                    campFields
+                    campFields,
+                    writeOptions
                 );
                 break;
             }
@@ -1269,7 +1698,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
                 result = await apiRequest("/api/v1/chat", "POST", {
                     message: args?.message,
                     thread_id: args?.thread_id,
-                });
+                }, writeOptions);
                 break;
             }
 
@@ -1302,12 +1731,79 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
 async function start() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error(`OutreachPilot MCP Server v2.0.0 started.`);
+    console.error(`OutreachPilot MCP Server v2.1.0 started.`);
     console.error(`API URL: ${API_URL}`);
     console.error(`Tools available: ${TOOLS.map(t => t.name).join(", ")}`);
 }
 
-start().catch((error) => {
+function printCliHelp(): void {
+    console.log(`OutreachPilot MCP / CLI
+
+Usage:
+  outreachpilot-mcp                 Start the MCP stdio server
+  outreachpilot-mcp mcp             Start the MCP stdio server
+  outreachpilot-mcp list-tools      Print available MCP tools as JSON
+  outreachpilot-mcp doctor          Check API key and workspace connectivity
+  outreachpilot-mcp pilot <message> Send a natural-language command to /api/v1/chat
+
+Environment:
+  OUTREACHPILOT_API_KEY             Required for API calls
+  OUTREACHPILOT_API_URL             Defaults to https://useoutreachpilot.com`);
+}
+
+async function runCli(argv: string[]): Promise<void> {
+    const [command, ...rest] = argv;
+
+    switch (command) {
+        case undefined:
+        case "mcp":
+            await start();
+            return;
+        case "help":
+        case "--help":
+        case "-h":
+            printCliHelp();
+            return;
+        case "list-tools":
+            console.log(formatResult(TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }))));
+            return;
+        case "doctor": {
+            const status = {
+                api_url: API_URL,
+                api_key_present: Boolean(API_KEY),
+            };
+            if (!API_KEY) {
+                console.log(formatResult({
+                    ok: false,
+                    ...status,
+                    next_step: "Set OUTREACHPILOT_API_KEY to an op_live_ API key from Settings -> Workspace -> API Keys.",
+                }));
+                process.exitCode = 1;
+                return;
+            }
+
+            const setup = await apiRequest("/api/v1/setup/status");
+            console.log(formatResult({ ok: true, ...status, setup }));
+            return;
+        }
+        case "pilot": {
+            const message = rest.join(" ").trim();
+            if (!message) {
+                throw new Error("Usage: outreachpilot-mcp pilot <message>");
+            }
+
+            const result = await apiRequest("/api/v1/chat", "POST", { message }, {
+                idempotencyKey: makeStableIdempotencyKey("cli:pilot", { message }),
+            });
+            console.log(formatResult(result));
+            return;
+        }
+        default:
+            throw new Error(`Unknown command "${command}". Run "outreachpilot-mcp help" for usage.`);
+    }
+}
+
+runCli(process.argv.slice(2)).catch((error) => {
     console.error("Fatal server error:", error);
     process.exit(1);
 });
