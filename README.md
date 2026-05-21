@@ -210,6 +210,7 @@ Send any natural language instruction to the OutreachPilot AI engine. This is th
 
 | Tool | Description |
 |------|-------------|
+| `find_prospects` | Canonical prospecting tool. If `channels` includes `email`, the requested count means verified, person-specific, sendable email prospects; raw sourced people do not count. |
 | `run_research` | Start agentic research to find companies or people |
 | `check_research_status` | Poll a research job's progress |
 | `import_research_results` | Import research results as contacts into the CRM |
@@ -228,14 +229,17 @@ Send any natural language instruction to the OutreachPilot AI engine. This is th
 
 ### Full Prospecting Pipeline
 ```
-User: Find 10 fintech founders in New York, research each one, and add them to a campaign.
+User: Find 10 fintech founders in New York with verified emails, research each one, and add them to a campaign.
 
 Claude: [setup_workspace] → checks workspace is ready
-        [run_research] → finds 10 fintech founders
+        [find_prospects] → channels=["email","linkedin"], target_count=10
         [check_research_status] → waits for results
-        [import_research_results] → imports to CRM + folder
+        → only count verified, person-specific emails
+        → if only 7 verify, report 7/10 and do not pretend the target is met
         [pilot] → "Build a 3-step email campaign for the NYC Fintech folder"
 ```
+
+Email prospecting is strict: `target_count=10` means 10 sendable email contacts, not 10 LinkedIn profiles. Generic inboxes (`hello@`, `info@`), guessed local parts, catch-all/likely results, and unverified emails do not count.
 
 ### Quick Health Check
 ```
