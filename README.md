@@ -210,7 +210,8 @@ Send any natural language instruction to the OutreachPilot AI engine. This is th
 
 | Tool | Description |
 |------|-------------|
-| `find_prospects` | Canonical prospecting tool. If `channels` includes `email`, the requested count means verified, person-specific, sendable email prospects; raw sourced people do not count. |
+| `find_prospects` | Canonical B2B people/account prospecting tool. If `channels` includes `email`, the requested count means verified, person-specific, sendable email prospects; raw sourced people do not count. |
+| `local_prospecting.*` | Google Maps/local-business prospecting tools: estimate cost, start a run, list/recover runs, poll status, list ranked business candidates, or stop a run. Use for place-based searches like "dentists in Austin"; use `find_prospects` for B2B people/accounts. |
 | `run_research` | Start agentic research to find companies or people |
 | `check_research_status` | Poll a research job's progress |
 | `import_research_results` | Import research results as contacts into the CRM |
